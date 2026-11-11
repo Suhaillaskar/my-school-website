@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: my-school-website
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    disk:
+      name: school-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: SCHOOL_DATA_DIR
+        value: /var/data
+      - key: SESSION_SECRET
+        generateValue: true

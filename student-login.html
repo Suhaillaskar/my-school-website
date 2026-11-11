@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Secure student sign in for My School.">
+    <title>Student Login | My School</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/login.js" defer></script>
+</head>
+<body class="portal-page">
+    <main class="login-layout">
+        <a class="brand login-brand" href="index.html"><img src="images/logo.png" alt=""><span class="brand-copy"><strong>My School</strong><span>Your child’s second home</span></span></a>
+        <section class="login-card">
+            <a class="back-link" href="index.html">← Back to the school website</a>
+            <span class="eyebrow">Student portal</span>
+            <h1>Good to <span>see you.</span></h1>
+            <p class="login-intro">Sign in with the school account provided to you by your administrator.</p>
+            <form class="portal-form" data-role="student" method="post" action="/api/login/student">
+                <label for="student-email">School email address</label>
+                <input id="student-email" name="email" type="email" autocomplete="username" maxlength="254" required>
+                <label for="student-password">Password</label>
+                <input id="student-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+                <p class="form-message" role="status" aria-live="polite"></p>
+                <button class="button button-primary" type="submit">Sign in as student <span aria-hidden="true">→</span></button>
+            </form>
+            <p class="login-switch">Need an account or password help? Please contact your school administrator.</p>
+            <p class="login-switch"><a href="admin-login.html">Administrator login</a></p>
+        </section>
+        <p class="login-footnote">Your school account is private. Sign out when using a shared device.</p>
+    </main>
+</body>
+</html>
