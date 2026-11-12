@@ -26,7 +26,8 @@ if (configuredSessionSecret && configuredSessionSecret.length < 32) {
 }
 
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY === '1');
+const trustProxy = process.env.TRUST_PROXY === '1' || process.env.NODE_ENV === 'production';
+app.set('trust proxy', trustProxy);
 app.use((req, res, next) => {
     res.set({
         'X-Content-Type-Options': 'nosniff',
@@ -124,7 +125,9 @@ function requireRole(role) {
 
 function isSameOrigin(req, res) {
     const origin = req.get('origin');
-    if (origin && origin !== `${req.protocol}://${req.get('host')}`) {
+    const host = req.get('host');
+    const expectedOrigin = `${req.protocol}://${host}`;
+    if (origin && origin !== expectedOrigin) {
         res.status(403).json({ error: 'Request origin was not accepted.' });
         return false;
     }

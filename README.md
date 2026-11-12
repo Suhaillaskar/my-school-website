@@ -56,6 +56,6 @@ Keep the persistent disk attached to the service, and back up the database secur
   When no value is configured, the server will generate a temporary random secret for that process and warn in the logs, but the secret will change after each restart. Set a persistent value in production to keep sessions stable and avoid sign-outs.
 
 - Set `HOST=0.0.0.0` and `PORT` as required by the hosting service. Serve the app behind HTTPS and use a persistent private `SCHOOL_DATA_DIR`; back up that directory securely.
-- If TLS terminates at a trusted reverse proxy, set `TRUST_PROXY=1` only when that proxy overwrites forwarded headers and direct access to the app server is restricted. Do not enable it when clients can connect directly.
+- If TLS terminates at a trusted reverse proxy, set `TRUST_PROXY=1` when that proxy overwrites forwarded headers and direct access to the app server is restricted. Do not enable it when clients can connect directly. Render uses a trusted proxy in production, so the app accepts the forwarded HTTPS origin and host values.
 
 The server uses HTTPS-only session cookies in production, 12-hour server-side sessions, role-checked routes, password hashing with scrypt, same-site cookies and origin checks for writes, and a per-process sign-in attempt limit. The development session secret is temporary, so restarting the server signs users out. Use an external rate limiter if deploying multiple server instances.
