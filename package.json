@@ -6,9 +6,11 @@
   "scripts": {
     "start": "node server.js",
     "create-admin": "node scripts/create-admin.js",
+    "migrate:turso": "node scripts/migrate-sqlite-to-turso.js",
     "test": "node --test"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "better-sqlite3": "^11.10.0",
     "express": "^5.1.0"
   }

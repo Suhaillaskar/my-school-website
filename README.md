@@ -33,6 +33,51 @@ The SQLite database is stored in the `data` folder. Set `SCHOOL_DATA_DIR` to a p
 
 The site also includes local illustrative stock photos from [Unsplash](https://unsplash.com/license), so they load without external image requests. They are examples, not photos of My School. Replace them with images you own or have permission to publish before presenting the gallery as actual school life.
 
+## Free deployment with Vercel and Turso
+
+The app can run on Vercel with a Turso database so user accounts, notices, and results are stored outside the serverless function. Vercel serves the files in `public/`; protected portal pages and API routes are handled by the Express function. Vercel Hobby and Turso Free currently have no monthly charge, but check each provider's current limits and terms. Vercel Hobby is intended for individual projects; confirm it is appropriate for your school site's use before deploying.
+
+1. Create a Turso database and copy its database URL and authentication token.
+2. Import this GitHub repository into Vercel and deploy the `vercel-turso` branch.
+3. In Vercel's project settings, add these environment variables for Production (and Preview if needed):
+   - `TURSO_DATABASE_URL` — the Turso database URL
+   - `TURSO_AUTH_TOKEN` — the database token; keep it private
+   - `SESSION_SECRET` — a private random value of at least 32 characters
+   - `NODE_ENV` — `production`
+4. Generate a session secret locally with Node.js:
+
+   ```powershell
+   node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
+   ```
+
+5. Redeploy after adding the variables. Vercel's `VERCEL` environment flag makes the app fail clearly if the persistent database or session secret is missing, rather than silently using temporary local storage.
+
+### Migrate the current Render database
+
+Keep the Render service and its database intact until the Vercel deployment is verified. If the Render database is on its persistent disk, export `/var/data/school.sqlite` from the Render Shell to a secure local file. For example, print a base64 copy in the Render Shell:
+
+```sh
+base64 -w 0 /var/data/school.sqlite
+```
+
+Save that output to a private file such as `school.sqlite.b64` on your computer, then decode it in PowerShell:
+
+```powershell
+[IO.File]::WriteAllBytes("$PWD\school.sqlite", [Convert]::FromBase64String((Get-Content -Raw .\school.sqlite.b64)))
+```
+
+Set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in your PowerShell session and run `npm run migrate:turso -- .\school.sqlite`. The migration imports account password hashes, notices, and public results. It does not import active sessions, so users will sign in again. It stops if the Turso tables already contain data. Keep the database export and token private, then securely remove the temporary export files after verifying the migration.
+
+If Render has no persistent disk or `/var/data/school.sqlite` is missing, stop: there is no source file to migrate from that path. Do not claim the old database was migrated or start over without deciding how to recover the existing data.
+
+If starting with an empty database, create the initial admin locally after setting the same Turso variables:
+
+```powershell
+npm run create-admin
+```
+
+Keep the existing Render deployment available until you have verified admin login, student login, notices, and results on Vercel. Then you can switch links or DNS to the new site and decide whether to retire Render.
+
 ## Deploy publicly with Render
 
 The included `render.yaml` configures a Node.js web service with HTTPS, a generated session secret, a `/health` check, and a persistent disk for the SQLite database. The web service and persistent disk require a paid Render plan. The database is created empty on first deploy; the local `data/` folder and its admin account are intentionally excluded from source control.

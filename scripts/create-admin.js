@@ -1,6 +1,6 @@
 const { createInterface } = require('node:readline/promises');
 const { stdin, stdout } = require('node:process');
-const { createUser } = require('../lib/database');
+const { database, createUser } = require('../lib/database');
 const { isValidPassword } = require('../lib/passwords');
 
 async function readPassword(prompt) {
@@ -57,6 +57,7 @@ async function main() {
         console.log('Admin account created. Keep the password private.');
     } finally {
         prompt.close();
+        database.close();
     }
 }
 

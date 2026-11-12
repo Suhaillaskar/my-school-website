@@ -154,6 +154,7 @@ test('enforces role-based login, account management, notices, and password chang
     assert.equal(admin.response.status, 200);
     const adminAccount = await request('/api/me', admin.cookie);
     assert.equal((await adminAccount.json()).role, 'admin');
+    assert.equal((await request('/admin', admin.cookie)).status, 200);
 
     const invalidStudent = await request('/api/admin/students', admin.cookie, {
         method: 'POST',
@@ -256,6 +257,7 @@ test('enforces role-based login, account management, notices, and password chang
 
     const student = await login('student', 'new-student@example.test', 'NewStudentPassword123');
     assert.equal(student.response.status, 200);
+    assert.equal((await request('/student', student.cookie)).status, 200);
     const protectedAccounts = await request('/api/admin/students', student.cookie);
     assert.equal(protectedAccounts.status, 403);
     const forbiddenNotice = await request('/api/notices', student.cookie, {

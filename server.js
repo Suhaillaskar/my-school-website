@@ -7,6 +7,7 @@ const { hashPassword, isValidPassword, verifyPassword } = require('./lib/passwor
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
+const PUBLIC_DIRECTORY = path.join(__dirname, 'public');
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const configuredSessionSecret = typeof process.env.SESSION_SECRET === 'string' ? process.env.SESSION_SECRET.trim() : '';
 const SESSION_SECRET = configuredSessionSecret || crypto.randomBytes(32).toString('hex');
@@ -18,8 +19,11 @@ const PUBLIC_PAGES = new Set([
 ]);
 const ROLES = new Set(['admin', 'student']);
 
-if (process.env.NODE_ENV === 'production' && !configuredSessionSecret) {
+if (process.env.NODE_ENV === 'production' && !process.env.VERCEL && !configuredSessionSecret) {
     console.warn('SESSION_SECRET is unset; using a temporary random value for this process. Set a persistent secret in the hosting environment to avoid signing users out after restarts.');
+}
+if (process.env.VERCEL && !configuredSessionSecret) {
+    throw new Error('Set SESSION_SECRET in Vercel before deploying the production site.');
 }
 if (configuredSessionSecret && configuredSessionSecret.length < 32) {
     throw new Error('SESSION_SECRET must contain at least 32 characters.');
@@ -38,14 +42,17 @@ app.use((req, res, next) => {
     });
     next();
 });
+app.use((req, res, next) => {
+    database.initialize().then(() => next(), next);
+});
 app.use(express.json({ limit: '16kb' }));
 app.use(express.urlencoded({ extended: false, limit: '16kb' }));
-app.use('/css', express.static(path.join(__dirname, 'css'), { fallthrough: false, index: false }));
-app.use('/images', express.static(path.join(__dirname, 'images'), { fallthrough: false, index: false }));
-app.use('/js', express.static(path.join(__dirname, 'js'), { fallthrough: false, index: false }));
+app.use('/css', express.static(path.join(PUBLIC_DIRECTORY, 'css'), { fallthrough: false, index: false }));
+app.use('/images', express.static(path.join(PUBLIC_DIRECTORY, 'images'), { fallthrough: false, index: false }));
+app.use('/js', express.static(path.join(PUBLIC_DIRECTORY, 'js'), { fallthrough: false, index: false }));
 
-app.get('/health', (req, res) => {
-    database.prepare('SELECT 1').get();
+app.get('/health', async (req, res) => {
+    await database.get('SELECT 1');
     return res.status(200).json({ status: 'ok' });
 });
 
@@ -69,55 +76,64 @@ function sessionTokenHash(token) {
     return crypto.createHmac('sha256', SESSION_SECRET).update(token).digest('hex');
 }
 
-function authenticate(req, res, next) {
-    const token = getCookie(req, 'school_session');
-    if (!/^[a-f\d]{64}$/i.test(token)) {
-        return res.status(401).json({ error: 'Please sign in to continue.' });
-    }
-    const tokenHash = sessionTokenHash(token);
-    const session = database.prepare(`
-        SELECT users.id, users.email, users.role, sessions.expires_at
-        FROM sessions JOIN users ON users.id = sessions.user_id
-        WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-    `).get(tokenHash, Math.floor(Date.now() / 1000));
-    if (!session) {
-        const options = sessionCookieOptions();
-        delete options.maxAge;
-        res.clearCookie('school_session', options);
-        return res.status(401).json({ error: 'Please sign in to continue.' });
-    }
-    req.user = session;
-    req.sessionTokenHash = tokenHash;
-    return next();
-}
-
-function requirePortalPage(role) {
-    return (req, res, next) => {
-        res.set('Cache-Control', 'no-store');
+async function authenticate(req, res, next) {
+    try {
         const token = getCookie(req, 'school_session');
-        const tokenHash = /^[a-f\d]{64}$/i.test(token) ? sessionTokenHash(token) : '';
-        const session = tokenHash && database.prepare(`
+        if (!/^[a-f\d]{64}$/i.test(token)) {
+            return res.status(401).json({ error: 'Please sign in to continue.' });
+        }
+        const tokenHash = sessionTokenHash(token);
+        const session = await database.get(`
             SELECT users.id, users.email, users.role, sessions.expires_at
             FROM sessions JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-        `).get(tokenHash, Math.floor(Date.now() / 1000));
+        `, tokenHash, Math.floor(Date.now() / 1000));
         if (!session) {
             const options = sessionCookieOptions();
             delete options.maxAge;
             res.clearCookie('school_session', options);
-            return res.redirect(role === 'admin' ? '/admin-login.html' : '/student-login.html');
-        }
-        if (session.role !== role) {
-            return res.redirect(session.role === 'admin' ? '/admin' : '/student');
+            return res.status(401).json({ error: 'Please sign in to continue.' });
         }
         req.user = session;
+        req.sessionTokenHash = tokenHash;
         return next();
+    } catch (error) {
+        return next(error);
+    }
+}
+
+function requirePortalPage(role) {
+    return async (req, res, next) => {
+        try {
+            res.set('Cache-Control', 'no-store');
+            const token = getCookie(req, 'school_session');
+            const tokenHash = /^[a-f\d]{64}$/i.test(token) ? sessionTokenHash(token) : '';
+            const session = tokenHash && await database.get(`
+                SELECT users.id, users.email, users.role, sessions.expires_at
+                FROM sessions JOIN users ON users.id = sessions.user_id
+                WHERE sessions.token_hash = ? AND sessions.expires_at > ?
+            `, tokenHash, Math.floor(Date.now() / 1000));
+            if (!session) {
+                const options = sessionCookieOptions();
+                delete options.maxAge;
+                res.clearCookie('school_session', options);
+                return res.redirect(role === 'admin' ? '/admin-login.html' : '/student-login.html');
+            }
+            if (session.role !== role) {
+                return res.redirect(session.role === 'admin' ? '/admin' : '/student');
+            }
+            req.user = session;
+            return next();
+        } catch (error) {
+            return next(error);
+        }
     };
 }
 
 function requireRole(role) {
     return (req, res, next) => authenticate(req, res, (error) => {
         if (error) return next(error);
+        if (res.headersSent) return;
         if (req.user.role !== role) return res.status(403).json({ error: 'You do not have permission to access this page.' });
         return next();
     });
@@ -172,10 +188,10 @@ function validText(value, maxLength) {
     return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= maxLength;
 }
 
-function clearSession(req, res) {
+async function clearSession(req, res) {
     const token = getCookie(req, 'school_session');
     if (/^[a-f\d]{64}$/i.test(token)) {
-        database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sessionTokenHash(token));
+        await database.run('DELETE FROM sessions WHERE token_hash = ?', sessionTokenHash(token));
     }
     const options = sessionCookieOptions();
     delete options.maxAge;
@@ -183,7 +199,8 @@ function clearSession(req, res) {
 }
 
 function servePage(file) {
-    return (req, res, next) => res.sendFile(path.join(__dirname, file), (error) => error && next(error));
+    const root = file.startsWith('views/') || file.startsWith(`views${path.sep}`) ? __dirname : PUBLIC_DIRECTORY;
+    return (req, res, next) => res.sendFile(path.join(root, file), (error) => error && next(error));
 }
 
 app.get('/', (req, res) => res.redirect('/index.html'));
@@ -213,7 +230,7 @@ app.post('/api/login/:role', requestLoginLimit, async (req, res, next) => {
         return res.status(400).json({ error: 'Enter a valid email and password.' });
     }
     try {
-        const user = database.prepare('SELECT id, email, role, password_salt, password_hash FROM users WHERE email = ?').get(email);
+        const user = await database.get('SELECT id, email, role, password_salt, password_hash FROM users WHERE email = ?', email);
         const passwordMatches = user
             ? await verifyPassword(password, user.password_salt, user.password_hash)
             : await verifyPassword(password, '00000000000000000000000000000000', '00'.repeat(64));
@@ -223,7 +240,7 @@ app.post('/api/login/:role', requestLoginLimit, async (req, res, next) => {
         }
         const token = crypto.randomBytes(32).toString('hex');
         const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
-        database.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
+        await database.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
             sessionTokenHash(token), user.id, expiresAt
         );
         res.cookie('school_session', token, sessionCookieOptions());
@@ -234,9 +251,9 @@ app.post('/api/login/:role', requestLoginLimit, async (req, res, next) => {
     }
 });
 
-app.post('/api/logout', authenticate, (req, res) => {
+app.post('/api/logout', authenticate, async (req, res) => {
     if (!isSameOrigin(req, res)) return;
-    clearSession(req, res);
+    await clearSession(req, res);
     return res.json({ redirect: '/' });
 });
 
@@ -245,31 +262,31 @@ app.get('/api/me', authenticate, (req, res) => {
     return res.json({ id: req.user.id, email: req.user.email, role: req.user.role });
 });
 
-app.get('/api/admin/students', requireRole('admin'), (req, res) => {
+app.get('/api/admin/students', requireRole('admin'), async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    return res.json(database.prepare(
+    return res.json(await database.all(
         "SELECT id, email, created_at FROM users WHERE role = 'student' ORDER BY email COLLATE NOCASE"
-    ).all());
+    ));
 });
 
-app.get('/api/notices', (req, res) => {
+app.get('/api/notices', async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    return res.json(database.prepare('SELECT id, category, title, body, created_at FROM notices ORDER BY id DESC LIMIT 50').all());
+    return res.json(await database.all('SELECT id, category, title, body, created_at FROM notices ORDER BY id DESC LIMIT 50'));
 });
 
-app.get('/api/results', (req, res) => {
+app.get('/api/results', async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    return res.json(database.prepare(`
+    return res.json(await database.all(`
         SELECT id, class_level, exam, academic_year, students_appeared, students_passed,
                ROUND(100.0 * students_passed / students_appeared, 1) AS pass_percentage,
                created_at
         FROM public_results
         ORDER BY academic_year DESC, class_level ASC, id DESC
         LIMIT 100
-    `).all());
+    `));
 });
 
-app.post('/api/results', requireRole('admin'), (req, res) => {
+app.post('/api/results', requireRole('admin'), async (req, res) => {
     if (!isSameOrigin(req, res)) return;
     const body = req.body || {};
     const { classLevel, exam, academicYear, studentsAppeared, studentsPassed } = body;
@@ -284,11 +301,11 @@ app.post('/api/results', requireRole('admin'), (req, res) => {
         || !Number.isInteger(parsedPassed) || parsedPassed < 0 || parsedPassed > parsedAppeared) {
         return res.status(400).json({ error: 'Enter a valid class (1–12), exam, academic year, and aggregate student totals.' });
     }
-    const result = database.prepare(`
+    const result = await database.run(`
         INSERT INTO public_results (
             class_level, exam, academic_year, students_appeared, students_passed
         ) VALUES (?, ?, ?, ?, ?)
-    `).run(parsedClass, exam.trim(), academicYear, parsedAppeared, parsedPassed);
+    `, parsedClass, exam.trim(), academicYear, parsedAppeared, parsedPassed);
     return res.status(201).json({
         id: Number(result.lastInsertRowid),
         class_level: parsedClass,
@@ -300,10 +317,10 @@ app.post('/api/results', requireRole('admin'), (req, res) => {
     });
 });
 
-app.delete('/api/results/:id', requireRole('admin'), (req, res) => {
+app.delete('/api/results/:id', requireRole('admin'), async (req, res) => {
     if (!isSameOrigin(req, res)) return;
     if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid result.' });
-    const result = database.prepare('DELETE FROM public_results WHERE id = ?').run(Number(req.params.id));
+    const result = await database.run('DELETE FROM public_results WHERE id = ?', Number(req.params.id));
     if (!result.changes) return res.status(404).json({ error: 'Result not found.' });
     return res.status(204).end();
 });
@@ -320,30 +337,30 @@ app.post('/api/admin/students', requireRole('admin'), async (req, res, next) => 
         const id = await createUser(email, 'student', password);
         return res.status(201).json({ id, email, role: 'student' });
     } catch (error) {
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE constraint failed/i.test(error.message)) {
             return res.status(409).json({ error: 'An account with that email already exists.' });
         }
         return next(error);
     }
 });
 
-app.post('/api/notices', requireRole('admin'), (req, res) => {
+app.post('/api/notices', requireRole('admin'), async (req, res) => {
     if (!isSameOrigin(req, res)) return;
     const categories = new Set(['General', 'Admissions', 'Events']);
     const { category, title, body } = req.body || {};
     if (!categories.has(category) || !validText(title, 120) || !validText(body, 2000)) {
         return res.status(400).json({ error: 'Choose a category and provide a title and notice text within the listed limits.' });
     }
-    const result = database.prepare('INSERT INTO notices (category, title, body) VALUES (?, ?, ?)').run(
+    const result = await database.run('INSERT INTO notices (category, title, body) VALUES (?, ?, ?)',
         category, title.trim(), body.trim()
     );
     return res.status(201).json({ id: Number(result.lastInsertRowid), category, title: title.trim(), body: body.trim() });
 });
 
-app.delete('/api/notices/:id', requireRole('admin'), (req, res) => {
+app.delete('/api/notices/:id', requireRole('admin'), async (req, res) => {
     if (!isSameOrigin(req, res)) return;
     if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid notice.' });
-    const result = database.prepare('DELETE FROM notices WHERE id = ?').run(Number(req.params.id));
+    const result = await database.run('DELETE FROM notices WHERE id = ?', Number(req.params.id));
     if (!result.changes) return res.status(404).json({ error: 'Notice not found.' });
     return res.status(204).end();
 });
@@ -355,13 +372,13 @@ app.post('/api/password', authenticate, async (req, res, next) => {
         return res.status(400).json({ error: 'Enter your current password and a new password between 12 and 128 characters.' });
     }
     try {
-        const user = database.prepare('SELECT password_salt, password_hash FROM users WHERE id = ?').get(req.user.id);
+        const user = await database.get('SELECT password_salt, password_hash FROM users WHERE id = ?', req.user.id);
         if (!await verifyPassword(currentPassword || '', user.password_salt, user.password_hash)) {
             return res.status(401).json({ error: 'Current password is incorrect.' });
         }
         const { hash, salt } = await hashPassword(newPassword);
-        database.prepare('UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?').run(salt, hash, req.user.id);
-        database.prepare('DELETE FROM sessions WHERE user_id = ?').run(req.user.id);
+        await database.run('UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?', salt, hash, req.user.id);
+        await database.run('DELETE FROM sessions WHERE user_id = ?', req.user.id);
         const options = sessionCookieOptions();
         delete options.maxAge;
         res.clearCookie('school_session', options);
@@ -378,18 +395,27 @@ app.use((error, req, res, next) => {
     return res.status(500).json({ error: 'An unexpected server error occurred.' });
 });
 
-database.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Math.floor(Date.now() / 1000));
-const server = app.listen(PORT, HOST, () => {
-    console.log(`My School is running at http://${HOST}:${PORT}`);
-    if (!process.env.SESSION_SECRET) console.warn('Using a temporary session secret; sessions will expire when the server restarts.');
-});
-
-function shutdown() {
-    server.close(() => {
-        database.close();
-        process.exit(0);
+async function startServer() {
+    await database.initialize();
+    await database.run('DELETE FROM sessions WHERE expires_at <= ?', Math.floor(Date.now() / 1000));
+    return app.listen(PORT, HOST, () => {
+        console.log(`My School is running at http://${HOST}:${PORT}`);
+        if (!process.env.SESSION_SECRET) console.warn('Using a temporary session secret; sessions will expire when the server restarts.');
     });
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+if (require.main === module) {
+    startServer().then((server) => {
+        const shutdown = () => server.close(() => {
+            database.close();
+            process.exit(0);
+        });
+        process.on('SIGINT', shutdown);
+        process.on('SIGTERM', shutdown);
+    }).catch((error) => {
+        console.error('Could not start My School:', error);
+        process.exitCode = 1;
+    });
+}
+
+module.exports = app;
