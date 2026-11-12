@@ -47,11 +47,13 @@ Keep the persistent disk attached to the service, and back up the database secur
 ## Production setup
 
 - Set `NODE_ENV=production`.
-- Set `SESSION_SECRET` to a private random value of at least 32 characters. To generate one locally with Node.js:
+- Set `SESSION_SECRET` to a private random value of at least 32 characters for a persistent deployment. To generate one locally with Node.js:
 
   ```powershell
   node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
   ```
+
+  When no value is configured, the server will generate a temporary random secret for that process and warn in the logs, but the secret will change after each restart. Set a persistent value in production to keep sessions stable and avoid sign-outs.
 
 - Set `HOST=0.0.0.0` and `PORT` as required by the hosting service. Serve the app behind HTTPS and use a persistent private `SCHOOL_DATA_DIR`; back up that directory securely.
 - If TLS terminates at a trusted reverse proxy, set `TRUST_PROXY=1` only when that proxy overwrites forwarded headers and direct access to the app server is restricted. Do not enable it when clients can connect directly.

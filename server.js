@@ -7,7 +7,8 @@ const { hashPassword, isValidPassword, verifyPassword } = require('./lib/passwor
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const configuredSessionSecret = typeof process.env.SESSION_SECRET === 'string' ? process.env.SESSION_SECRET.trim() : '';
+const SESSION_SECRET = configuredSessionSecret || crypto.randomBytes(32).toString('hex');
 const loginAttempts = new Map();
 const PUBLIC_PAGES = new Set([
     'index.html', 'about.html', 'academics.html', 'admission.html',
@@ -16,10 +17,10 @@ const PUBLIC_PAGES = new Set([
 ]);
 const ROLES = new Set(['admin', 'student']);
 
-if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
-    throw new Error('Set SESSION_SECRET to a private, random value of at least 32 characters in production.');
+if (process.env.NODE_ENV === 'production' && !configuredSessionSecret) {
+    console.warn('SESSION_SECRET is unset; using a temporary random value for this process. Set a persistent secret in the hosting environment to avoid signing users out after restarts.');
 }
-if (process.env.SESSION_SECRET && SESSION_SECRET.length < 32) {
+if (configuredSessionSecret && configuredSessionSecret.length < 32) {
     throw new Error('SESSION_SECRET must contain at least 32 characters.');
 }
 
