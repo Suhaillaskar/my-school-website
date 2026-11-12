@@ -36,6 +36,7 @@ before(async () => {
         cwd: path.join(__dirname, '..'),
         env: {
             ...process.env,
+            NODE_ENV: 'production',
             HOST: '127.0.0.1',
             PORT: String(port),
             SESSION_SECRET: randomBytes(32).toString('hex')
@@ -124,6 +125,13 @@ test('enforces role-based login, account management, notices, and password chang
     assert.equal(wrongRole.response.status, 401);
     const emptyLogin = await request('/api/login/admin', undefined, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     assert.equal(emptyLogin.status, 400);
+
+    const sameHostHttpsOrigin = await request('/api/login/admin', undefined, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: `${baseUrl.replace('http:', 'https:')}` },
+        body: JSON.stringify({ email: 'admin@example.test', password: 'wrong-password' })
+    });
+    assert.equal(sameHostHttpsOrigin.status, 401);
 
     const formLogin = await fetch(`${baseUrl}/api/login/admin`, {
         method: 'POST',

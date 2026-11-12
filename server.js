@@ -126,10 +126,21 @@ function requireRole(role) {
 function isSameOrigin(req, res) {
     const origin = req.get('origin');
     const host = req.get('host');
-    const expectedOrigin = `${req.protocol}://${host}`;
-    if (origin && origin !== expectedOrigin) {
-        res.status(403).json({ error: 'Request origin was not accepted.' });
-        return false;
+    if (origin) {
+        let parsedOrigin;
+        try {
+            parsedOrigin = new URL(origin);
+        } catch {
+            res.status(403).json({ error: 'Request origin was not accepted.' });
+            return false;
+        }
+        const sameHost = parsedOrigin.host.toLowerCase() === (host || '').toLowerCase();
+        const secureProductionOrigin = process.env.NODE_ENV === 'production' && parsedOrigin.protocol === 'https:';
+        const sameDevelopmentOrigin = process.env.NODE_ENV !== 'production' && parsedOrigin.protocol === `${req.protocol}:`;
+        if (!sameHost || (!secureProductionOrigin && !sameDevelopmentOrigin)) {
+            res.status(403).json({ error: 'Request origin was not accepted.' });
+            return false;
+        }
     }
     return true;
 }
