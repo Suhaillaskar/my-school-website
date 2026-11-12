@@ -2030,6 +2030,24 @@ h2 {
     font-weight: 700;
 }
 
+.password-help {
+    margin-top: 20px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.password-help summary {
+    width: fit-content;
+    color: var(--blue);
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.password-help p {
+    margin: 8px 0 0;
+}
+
 .login-footnote {
     margin: 15px 4px 0;
     text-align: center;

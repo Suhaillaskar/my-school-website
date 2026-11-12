@@ -115,9 +115,13 @@ test('serves every school page and protects both portals', async () => {
     const adminPortal = await request('/admin', undefined, { redirect: 'manual' });
     assert.equal(adminPortal.status, 302);
     assert.equal(adminPortal.headers.get('location'), '/admin-login.html');
+    const adminLogin = await (await request('/admin-login.html')).text();
+    assert.match(adminLogin, /Forgot your password\?/);
     const studentPortal = await request('/student', undefined, { redirect: 'manual' });
     assert.equal(studentPortal.status, 302);
     assert.equal(studentPortal.headers.get('location'), '/student-login.html');
+    const studentLogin = await (await request('/student-login.html')).text();
+    assert.match(studentLogin, /Forgot your password\?/);
 });
 
 test('enforces role-based login, account management, notices, and password changes', async () => {
