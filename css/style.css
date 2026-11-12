@@ -2044,6 +2044,12 @@ h2 {
     font-weight: 700;
 }
 
+.password-help summary:focus-visible {
+    border-radius: 2px;
+    outline: 2px solid var(--blue);
+    outline-offset: 3px;
+}
+
 .password-help p {
     margin: 8px 0 0;
 }
