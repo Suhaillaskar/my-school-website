@@ -6,6 +6,7 @@ const { hashPassword, isValidPassword, verifyPassword } = require('./lib/passwor
 
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const configuredSessionSecret = typeof process.env.SESSION_SECRET === 'string' ? process.env.SESSION_SECRET.trim() : '';
 const SESSION_SECRET = configuredSessionSecret || crypto.randomBytes(32).toString('hex');
@@ -364,8 +365,8 @@ app.use((error, req, res, next) => {
 });
 
 database.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Math.floor(Date.now() / 1000));
-const server = app.listen(PORT, process.env.HOST || '127.0.0.1', () => {
-    console.log(`My School is running at http://${process.env.HOST || '127.0.0.1'}:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+    console.log(`My School is running at http://${HOST}:${PORT}`);
     if (!process.env.SESSION_SECRET) console.warn('Using a temporary session secret; sessions will expire when the server restarts.');
 });
 
